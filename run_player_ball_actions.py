@@ -1423,7 +1423,8 @@ def analyze_tracking_data(detections: pd.DataFrame):
 
 
 def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame, 
-                                   frames_dir: Optional[Path] = None, fps: float = 25.0):
+                                   frames_dir: Optional[Path] = None, fps: float = 25.0,
+                                   ball_model: str = 'yolov8x.pt'):
     """Display all detected actions with nearest player attribution.
     
     For each action, finds the nearest player(s) in space and time,
@@ -1453,7 +1454,7 @@ def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame,
     ball_detector = None
     try:
         from ultralytics import YOLO
-        ball_detector = YOLO('yolov8m.pt')
+        ball_detector = YOLO(ball_model)
     except:
         pass
     
@@ -1891,7 +1892,7 @@ def main():
     
     # Optional: Show all actions with player attribution before filtering
     if args.show_all_actions:
-        show_all_actions_with_players(actions, detections, frames_dir, fps=25.0)
+        show_all_actions_with_players(actions, detections, frames_dir, fps=25.0, ball_model=args.ball_model)
     
     # Step 4: Match actions to player
     matched_actions = match_actions_to_player(
