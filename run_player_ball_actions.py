@@ -809,12 +809,14 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                             
                             # Soccer-specific Filter 4: Color filter (exclude dark objects like shoes)
                             if filter_dark_colors and debug_img is not None:
-                                # Extract ball region from image
-                                b_x1_region, b_y1_region = max(0, int(b_x - b_w/2)), max(0, int(b_y - b_h/2))
-                                b_x2_region, b_y2_region = min(debug_img.shape[1], int(b_x + b_w/2)), min(debug_img.shape[0], int(b_y + b_h/2))
+                                # Extract ball region from image (clamp to image bounds)
+                                b_x1_clamped = max(0, b_x1)
+                                b_y1_clamped = max(0, b_y1)
+                                b_x2_clamped = min(debug_img.shape[1], b_x2)
+                                b_y2_clamped = min(debug_img.shape[0], b_y2)
                                 
-                                if b_x2_region > b_x1_region and b_y2_region > b_y1_region:
-                                    ball_region = debug_img[b_y1_region:b_y2_region, b_x1_region:b_x2_region]
+                                if b_x2_clamped > b_x1_clamped and b_y2_clamped > b_y1_clamped:
+                                    ball_region = debug_img[b_y1_clamped:b_y2_clamped, b_x1_clamped:b_x2_clamped]
                                     if ball_region.size > 0:
                                         # Convert to HSV for better color analysis
                                         hsv_region = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
