@@ -630,6 +630,9 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                         ball_class_id = cls_id
                     if cls_name.lower() == 'person':
                         person_class_id = cls_id
+                    # Break early if both classes found
+                    if ball_class_id is not None and person_class_id is not None:
+                        break
                 
                 if ball_class_id is None:
                     ball_class_id = 0
