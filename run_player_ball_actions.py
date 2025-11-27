@@ -621,12 +621,17 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                 ball_detector = YOLO(ball_model)
                 has_ball_detector = True
                 
-                # AUTO-DETECT BALL CLASS ID
+                # AUTO-DETECT BALL AND PERSON CLASS IDs
                 ball_class_id = None
+                person_class_id = None
                 class_names = ball_detector.names
                 for cls_id, cls_name in class_names.items():
                     if cls_name.lower() in ['ball', 'sports ball']:
                         ball_class_id = cls_id
+                    if cls_name.lower() == 'person':
+                        person_class_id = cls_id
+                    # Break early if both classes found
+                    if ball_class_id is not None and person_class_id is not None:
                         break
                 
                 if ball_class_id is None:
@@ -635,7 +640,10 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                 
                 print(f"   ✓ YOLO detector ready: {ball_model}")
                 print(f"   ✓ Ball class: {ball_class_id} ('{class_names[ball_class_id]}')")
+                if person_class_id is not None:
+                    print(f"   ✓ Person class: {person_class_id} ('{class_names[person_class_id]}')")
                 print(f"   ✓ Total classes: {len(class_names)} - {list(class_names.values())}")
+                print(f"   ✓ Detecting all classes (filtering to ball only in post-processing)")
                 
             except Exception as e:
                 print(f"   ⚠️  Could not initialize ball detector: {e}")
@@ -734,8 +742,8 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                         num_detections = len(ball_detections)
                         print(f"    Frame {frame_to_check}: {num_detections} TrackNet detections")
                     else:
-                        # YOLO detection
-                        results = ball_detector(str(frame_path), classes=[ball_class_id], conf=ball_confidence, verbose=False)
+                        # YOLO detection - detect all classes to leverage model context
+                        results = ball_detector(str(frame_path), conf=ball_confidence, verbose=False)
                         if results and len(results) > 0 and len(results[0].boxes) > 0:
                             for b in results[0].boxes:
                                 # ONLY process ball class (skip person detections)
@@ -920,7 +928,7 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                         
                         # Re-run ball detection on this specific frame for visualization (YOLO only)
                         if not using_tracknet:
-                            final_results = ball_detector(str(frame_path), classes=[ball_class_id], conf=ball_confidence, verbose=False)
+                            final_results = ball_detector(str(frame_path), conf=ball_confidence, verbose=False)
                             if final_results and len(final_results) > 0 and len(final_results[0].boxes) > 0:
                                 for b in final_results[0].boxes:
                                     # ONLY process ball class (skip person detections)
@@ -1415,7 +1423,8 @@ def analyze_tracking_data(detections: pd.DataFrame):
 
 
 def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame, 
-                                   frames_dir: Optional[Path] = None, fps: float = 25.0):
+                                   frames_dir: Optional[Path] = None, fps: float = 25.0,
+                                   ball_model: str = 'yolov8x.pt'):
     """Display all detected actions with nearest player attribution.
     
     For each action, finds the nearest player(s) in space and time,
@@ -1443,9 +1452,16 @@ def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame,
     
     # Initialize ball detector
     ball_detector = None
+    ball_class_id = 0  # Default to class 0
     try:
         from ultralytics import YOLO
-        ball_detector = YOLO('yolov8m.pt')
+        ball_detector = YOLO(ball_model)
+        # Auto-detect ball class ID
+        class_names = ball_detector.names
+        for cls_id, cls_name in class_names.items():
+            if cls_name.lower() in ['ball', 'sports ball']:
+                ball_class_id = cls_id
+                break
     except:
         pass
     
@@ -1517,7 +1533,7 @@ def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame,
                     import cv2
                     frame_img = cv2.imread(str(frame_path))
                     if frame_img is not None:
-                        results = ball_detector(frame_img, classes=[ball_class_id], conf=0.15, verbose=False)
+                        results = ball_detector(frame_img, conf=0.15, verbose=False)
                         if results and len(results) > 0 and len(results[0].boxes) > 0:
                             ball_dets = results[0].boxes
                             # Find closest ball to top candidate
@@ -1883,7 +1899,7 @@ def main():
     
     # Optional: Show all actions with player attribution before filtering
     if args.show_all_actions:
-        show_all_actions_with_players(actions, detections, frames_dir, fps=25.0)
+        show_all_actions_with_players(actions, detections, frames_dir, fps=25.0, ball_model=args.ball_model)
     
     # Step 4: Match actions to player
     matched_actions = match_actions_to_player(
