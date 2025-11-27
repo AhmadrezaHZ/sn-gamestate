@@ -1452,9 +1452,16 @@ def show_all_actions_with_players(actions: List[Dict], detections: pd.DataFrame,
     
     # Initialize ball detector
     ball_detector = None
+    ball_class_id = 0  # Default to class 0
     try:
         from ultralytics import YOLO
         ball_detector = YOLO(ball_model)
+        # Auto-detect ball class ID
+        class_names = ball_detector.names
+        for cls_id, cls_name in class_names.items():
+            if cls_name.lower() in ['ball', 'sports ball']:
+                ball_class_id = cls_id
+                break
     except:
         pass
     
