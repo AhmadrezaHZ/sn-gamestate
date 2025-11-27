@@ -752,41 +752,71 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                         num_detections = len(ball_detections)
                         print(f"    Frame {frame_to_check}: {num_detections} raw YOLO detections")
                     
+                    # Track filtered and passed detections for visualization
+                    filtered_reasons = []
+                    passed_count = 0
+                    
                     if num_detections > 0:
-                        filtered_reasons = []
-                        
                         for detection in ball_detections:
                             b_x, b_y, b_w, b_h = detection[0], detection[1], detection[2], detection[3]
+                            b_x1, b_y1 = int(b_x - b_w/2), int(b_y - b_h/2)
+                            b_x2, b_y2 = int(b_x + b_w/2), int(b_y + b_h/2)
                             
                             # Soccer-specific Filter 1: Height constraint (ball is usually on ground)
                             # Normalize Y coordinate to 0-1 range (0=top, 1=bottom)
                             height_ratio = b_y / img_height
                             if height_ratio < (1.0 - ball_max_height):  # Ball too high in frame
-                                filtered_reasons.append(f"height={height_ratio:.2f}")
+                                filter_reason = f"height={height_ratio:.2f}"
+                                filtered_reasons.append(filter_reason)
+                                # Draw red box for filtered detection with reason
+                                if debug_img is not None:
+                                    cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                    cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                 continue
                             
                             # Soccer-specific Filter 2: Size constraints (consistent ball size)
                             if b_w < ball_min_size or b_h < ball_min_size:
-                                filtered_reasons.append(f"too_small={min(b_w,b_h):.0f}px")
+                                filter_reason = f"too_small={min(b_w,b_h):.0f}px"
+                                filtered_reasons.append(filter_reason)
+                                # Draw red box for filtered detection with reason
+                                if debug_img is not None:
+                                    cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                    cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                 continue  # Too small
                             if b_w > ball_max_size or b_h > ball_max_size:
-                                filtered_reasons.append(f"too_large={max(b_w,b_h):.0f}px")
+                                filter_reason = f"too_large={max(b_w,b_h):.0f}px"
+                                filtered_reasons.append(filter_reason)
+                                # Draw red box for filtered detection with reason
+                                if debug_img is not None:
+                                    cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                    cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                 continue  # Too large (likely not a ball)
                             
                             # Soccer-specific Filter 3: Aspect ratio (ball should be roughly circular)
                             aspect_ratio = b_w / b_h if b_h > 0 else 999
                             if aspect_ratio > 1.35 or aspect_ratio < 0.74:  # Tighter: shoes are often elongated
-                                filtered_reasons.append(f"aspect={aspect_ratio:.2f}")
+                                filter_reason = f"aspect={aspect_ratio:.2f}"
+                                filtered_reasons.append(filter_reason)
+                                # Draw red box for filtered detection with reason
+                                if debug_img is not None:
+                                    cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                    cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                 continue
                             
                             # Soccer-specific Filter 4: Color filter (exclude dark objects like shoes)
                             if filter_dark_colors and debug_img is not None:
-                                # Extract ball region from image
-                                b_x1, b_y1 = max(0, int(b_x - b_w/2)), max(0, int(b_y - b_h/2))
-                                b_x2, b_y2 = min(debug_img.shape[1], int(b_x + b_w/2)), min(debug_img.shape[0], int(b_y + b_h/2))
+                                # Extract ball region from image (clamp to image bounds)
+                                b_x1_clamped = max(0, b_x1)
+                                b_y1_clamped = max(0, b_y1)
+                                b_x2_clamped = min(debug_img.shape[1], b_x2)
+                                b_y2_clamped = min(debug_img.shape[0], b_y2)
                                 
-                                if b_x2 > b_x1 and b_y2 > b_y1:
-                                    ball_region = debug_img[b_y1:b_y2, b_x1:b_x2]
+                                if b_x2_clamped > b_x1_clamped and b_y2_clamped > b_y1_clamped:
+                                    ball_region = debug_img[b_y1_clamped:b_y2_clamped, b_x1_clamped:b_x2_clamped]
                                     if ball_region.size > 0:
                                         # Convert to HSV for better color analysis
                                         hsv_region = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
@@ -797,49 +827,81 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                                         
                                         # Filter out dark objects (shoes are typically black/brown with low brightness)
                                         if mean_brightness < min_brightness:
-                                            filtered_reasons.append(f"dark=V{mean_brightness:.0f}")
+                                            filter_reason = f"dark=V{mean_brightness:.0f}"
+                                            filtered_reasons.append(filter_reason)
+                                            # Draw red box for filtered detection with reason
+                                            cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                            cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                             continue
                                         
                                         # Optional: very desaturated + dark = likely shoe/dark object
                                         # But allow white balls (low saturation + high brightness)
                                         if mean_saturation < min_saturation and mean_brightness < 150:
-                                            filtered_reasons.append(f"gray=S{mean_saturation:.0f}_V{mean_brightness:.0f}")
+                                            filter_reason = f"gray=S{mean_saturation:.0f}_V{mean_brightness:.0f}"
+                                            filtered_reasons.append(filter_reason)
+                                            # Draw red box for filtered detection with reason
+                                            cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                            cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                                             continue
                             
+                            # Detection passed all filters
+                            passed_count += 1
                             b_center = (b_x, b_y)
                             d = ((player_center[0] - b_center[0])**2 + (player_center[1] - b_center[1])**2)**0.5
                             
-                            # Draw ball bbox on debug image if available
+                            # Draw ball bbox on debug image if available (blue for valid)
                             if debug_img is not None:
-                                # This detection passed all filters (since we're here)
-                                passes_filters = True
-                                b_x1, b_y1 = int(b_x - b_w/2), int(b_y - b_h/2)
-                                b_x2, b_y2 = int(b_x + b_w/2), int(b_y + b_h/2)
                                 # Blue for valid ball (passed all filters including color)
-                                color = (255, 0, 0)
-                                cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), color, 2)
+                                cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (255, 0, 0), 2)
+                                cv2.putText(debug_img, "valid", (b_x1, b_y1 - 5), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
                             
                             if player_center is not None and d < best_ball_info['dist']:
                                 best_ball_info['dist'] = d
                                 best_ball_info['frame'] = frame_to_check
                     
-                    # Save debug image for this frame (even if no balls detected)
+                    # Add text annotations to debug image showing detection summary
+                    if debug_img is not None:
+                        # Add summary text at top of image
+                        summary_text = f"Raw: {num_detections} | Passed: {passed_count} | Filtered: {len(filtered_reasons)}"
+                        cv2.putText(debug_img, summary_text, (10, 25), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        cv2.putText(debug_img, summary_text, (10, 25), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+                        
+                        # Add legend
+                        cv2.putText(debug_img, "Blue=valid, Red=filtered, Green=player", (10, 50), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                        cv2.putText(debug_img, "Blue=valid, Red=filtered, Green=player", (10, 50), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                        
+                        # If all detections were filtered, show filter reasons
+                        if num_detections > 0 and passed_count == 0 and filtered_reasons:
+                            reasons_text = f"Filter reasons: {', '.join(filtered_reasons[:5])}"
+                            if len(filtered_reasons) > 5:
+                                reasons_text += f"... (+{len(filtered_reasons) - 5} more)"
+                            cv2.putText(debug_img, reasons_text, (10, 75), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                            cv2.putText(debug_img, reasons_text, (10, 75), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    
+                    # Save debug image for this frame (always save when debug_img exists)
                     if debug_img is not None:
                         try:
                             img_filename = f"frame_{action_frame}_{action['action']}_search_f{frame_to_check}.jpg"
                             cv2.imwrite(img_filename, debug_img)
-                            if num_detections > 0:
-                                print(f"      Saved: {img_filename}")
+                            print(f"      Saved: {img_filename} (raw:{num_detections}, passed:{passed_count}, filtered:{len(filtered_reasons)})")
                         except:
                             pass
                         
                         # Log filtering results for this frame
                         if frame_to_check == action_frame and num_detections > 0:
-                            passed = num_detections - len(filtered_reasons)
-                            if passed == 0:
+                            if passed_count == 0:
                                 print(f"    Frame {frame_to_check}: {num_detections} detections, all filtered: {', '.join(filtered_reasons[:3])}")
                             else:
-                                print(f"    Frame {frame_to_check}: {num_detections} detections, {passed} passed filters")
+                                print(f"    Frame {frame_to_check}: {num_detections} detections, {passed_count} passed filters")
             
             # Evaluate all candidates
             candidates = []
@@ -919,6 +981,10 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                         cv2.rectangle(debug_img, (p_x1, p_y1), (p_x2, p_y2), (0, 255, 0), 2)
                         
                         # Re-run ball detection on this specific frame for visualization (YOLO only)
+                        final_raw_count = 0
+                        final_passed_count = 0
+                        final_filtered_reasons = []
+                        
                         if not using_tracknet:
                             final_results = ball_detector(str(frame_path), classes=[ball_class_id], conf=ball_confidence, verbose=False)
                             if final_results and len(final_results) > 0 and len(final_results[0].boxes) > 0:
@@ -926,34 +992,69 @@ def match_actions_to_player(actions: List[Dict], player_dets: pd.DataFrame,
                                     # ONLY process ball class (skip person detections)
                                     if int(b.cls) != ball_class_id:
                                         continue
-                                        
+                                    
+                                    final_raw_count += 1
                                     b_xywh = b.xywh[0].cpu().numpy()
                                     b_x, b_y, b_w, b_h = float(b_xywh[0]), float(b_xywh[1]), float(b_xywh[2]), float(b_xywh[3])
                                     
-                                    # Apply same filters to determine color
-                                    height_ratio = b_y / frame_height
+                                    # Apply same filters to determine color and reason
                                     aspect_ratio = b_w / b_h if b_h > 0 else 999
-                                    
-                                    # Check if detection passes all filters
                                     height_ratio_calc = b_y / img_height
-                                    passes_filters = (
-                                        height_ratio_calc >= (1.0 - ball_max_height) and
-                                        b_w >= ball_min_size and b_h >= ball_min_size and
-                                        b_w <= ball_max_size and b_h <= ball_max_size and
-                                        aspect_ratio <= 1.35 and aspect_ratio >= 0.74
-                                    )
                                     
                                     b_x1, b_y1 = int(b_x - b_w/2), int(b_y - b_h/2)
                                     b_x2, b_y2 = int(b_x + b_w/2), int(b_y + b_h/2)
                                     
-                                    # Blue for valid ball, Red for filtered out
-                                    color = (255, 0, 0) if passes_filters else (0, 0, 255)
-                                    cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), color, 2)
+                                    # Check each filter and determine reason
+                                    filter_reason = None
+                                    if height_ratio_calc < (1.0 - ball_max_height):
+                                        filter_reason = f"height={height_ratio_calc:.2f}"
+                                    elif b_w < ball_min_size or b_h < ball_min_size:
+                                        filter_reason = f"too_small={min(b_w,b_h):.0f}px"
+                                    elif b_w > ball_max_size or b_h > ball_max_size:
+                                        filter_reason = f"too_large={max(b_w,b_h):.0f}px"
+                                    elif aspect_ratio > 1.35 or aspect_ratio < 0.74:
+                                        filter_reason = f"aspect={aspect_ratio:.2f}"
+                                    
+                                    if filter_reason:
+                                        final_filtered_reasons.append(filter_reason)
+                                        # Red for filtered out with reason label
+                                        cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (0, 0, 255), 2)
+                                        cv2.putText(debug_img, filter_reason, (b_x1, b_y1 - 5), 
+                                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+                                    else:
+                                        final_passed_count += 1
+                                        # Blue for valid ball
+                                        cv2.rectangle(debug_img, (b_x1, b_y1), (b_x2, b_y2), (255, 0, 0), 2)
+                                        cv2.putText(debug_img, "valid", (b_x1, b_y1 - 5), 
+                                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+                        
+                        # Add summary text at top of image
+                        summary_text = f"Raw: {final_raw_count} | Passed: {final_passed_count} | Filtered: {len(final_filtered_reasons)}"
+                        cv2.putText(debug_img, summary_text, (10, 25), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        cv2.putText(debug_img, summary_text, (10, 25), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+                        
+                        # Add legend
+                        cv2.putText(debug_img, "Blue=valid, Red=filtered, Green=player", (10, 50), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                        cv2.putText(debug_img, "Blue=valid, Red=filtered, Green=player", (10, 50), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                        
+                        # If all detections were filtered, show filter reasons
+                        if final_raw_count > 0 and final_passed_count == 0 and final_filtered_reasons:
+                            reasons_text = f"Filter reasons: {', '.join(final_filtered_reasons[:5])}"
+                            if len(final_filtered_reasons) > 5:
+                                reasons_text += f"... (+{len(final_filtered_reasons) - 5} more)"
+                            cv2.putText(debug_img, reasons_text, (10, 75), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                            cv2.putText(debug_img, reasons_text, (10, 75), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
                         # Save the image
                         img_filename = f"frame_{action_frame}_{action['action']}_ball_detection.jpg"
                         cv2.imwrite(img_filename, debug_img)
-                        print(f"    - Saved debug image: {img_filename} (visualizing frame {debug_frame_num})")
+                        print(f"    - Saved debug image: {img_filename} (visualizing frame {debug_frame_num}, raw:{final_raw_count}, passed:{final_passed_count})")
 
                 except Exception as e:
                     print(f"    - ⚠️  Failed to save debug image: {e}")
